@@ -7,6 +7,7 @@
 
 #include <iostream>
 
+#include <cuda.h>
 #include <cuda_fp16.h>
 
 template <typename T>
@@ -69,6 +70,13 @@ float_pair_t half2_stats(half* d_data, int N){
     throw(-1);
   }
 
+  float time;
+  cudaEvent_t start, stop;
+
+  cudaEventCreate(&start);
+  cudaEventCreate(&stop);
+  cudaEventRecord(start, 0);
+  
   thrust::device_ptr<unsigned int> d_ptr = thrust::device_pointer_cast((unsigned int*)d_data);
 
   h2f_unary_op unary_op;
@@ -83,10 +91,15 @@ float_pair_t half2_stats(half* d_data, int N){
   float_pair_t return_result;
   return_result.aave = result.asum_val/(float)result.nnz;
   return_result.amax = result.amax_val;
-  std::cout<<return_result.aave<<std::endl;
-  std::cout<<return_result.amax<<std::endl;
+
+
+  cudaEventRecord(stop, 0);
+  cudaEventSynchronize(stop);
+  cudaEventElapsedTime(&time, start, stop);
+
+  printf("Time to reduce %f GB:  %f ms \n", ((float)N*2)/(1024*1024*1024), time);
+  printf("Bandwidth is: %f GB/s \n", ((float)N*2)/(time/1000)/(1024*1024*1024) );
+  
   return return_result;
 
 }
-
-

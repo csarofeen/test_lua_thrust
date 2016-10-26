@@ -5,7 +5,7 @@ require ('cutorch')
 
 myLib = ffi.load("libtest_thrust.so")
 
-a = torch.rand(2,5):cuda()
+a = torch.rand(20000,50000):cuda()
 a = a - 0.6
 a = a:type("torch.CudaHalfTensor")
 
@@ -13,7 +13,7 @@ a[1][1] = 0
 a[1][2] = 0
 a[2][3] = 0
 
-print(a)
+--print(a)
 
 nVals = a:storage():size()
 
