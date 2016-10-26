@@ -18,21 +18,6 @@ struct asum_amax_type
 };
 
 template <typename T>
-struct asum_amax_unary_op
-  : public thrust::unary_function< T, asum_amax_type<T> >
-{
-    __host__ __device__
-    asum_amax_type<T> operator()(const T& x) const
-  {
-    asum_amax_type<T> result;
-    result.nnz = ( x == 0.f ) ? 0 : 1;
-    result.asum_val = fabsf(x);
-    result.amax_val = fabsf(x);
-    return result;
-  }
-};
-
-template <typename T>
 struct asum_amax_binary_op
   : public thrust::binary_function< asum_amax_type<T>, asum_amax_type<T>, asum_amax_type<T> >
 {
@@ -47,49 +32,6 @@ struct asum_amax_binary_op
   }
 };
 
-extern "C"
-float test(float* array, int N){
-  thrust::device_vector<float> d_vec(array, array+N);
-  return thrust::reduce(d_vec.begin(), d_vec.end(), 0, thrust::plus<float>() );
-}
-
-extern "C"
-float sum_dev_float(float* d_data, int N){
-  thrust::device_ptr<float> d_ptr = thrust::device_pointer_cast(d_data);
-  for(int i=0; i<N; i++){
-    //    std::cout<<d_ptr[i]<<std::endl;
-  }
-  return thrust::reduce(d_ptr, d_ptr+N, (float)0, thrust::plus<float>() );
-}
-typedef struct float_pair{
-    float aave;
-    float amax;
-} float_pair_t;
-
-
-
-extern "C"
-float_pair_t get_stats(float *d_data, int N){
-
-  if((uintptr_t)(const void *)(d_data) % 4 == 0) std::cout<<"Aligned at 4Byte boundary"<<std::endl;
-  
-  asum_amax_unary_op<float>  unary_op;
-  asum_amax_binary_op<float> binary_op;
-  
-  thrust::device_ptr<float> d_ptr = thrust::device_pointer_cast(d_data);
-
-  asum_amax_type<float> init = unary_op(d_ptr[0]);
-  init.nnz=0;
-  init.asum_val = 0;
-  asum_amax_type<float> result = thrust::transform_reduce(d_ptr, d_ptr+N, unary_op, init, binary_op);
-  float_pair_t return_result;
-  return_result.aave = result.asum_val/(float)result.nnz;
-  return_result.amax = result.amax_val;
-  std::cout<<return_result.aave<<std::endl;
-  std::cout<<return_result.amax<<std::endl;
-  return return_result;
-}
-
 struct h2f_unary_op
   : public thrust::unary_function<unsigned short, float>
 {
@@ -98,15 +40,20 @@ struct h2f_unary_op
   {
     half val = *( (half*) &x);
     asum_amax_type<float> result;
-    result.asum_val = __half2float(val);
+    result.asum_val = fabsf(__half2float(val));
     result.amax_val = result.asum_val;
     result.nnz = (result.asum_val == 0.f) ? 0 : 1;
     return result;
   }
 };
 
+typedef struct float_pair{
+  float aave;
+  float amax;
+} float_pair_t;
+
 extern "C"
-float_pair_t fp16_test(half* d_data, int N){
+float_pair_t fp16_stats(half* d_data, int N){
   if((uintptr_t)(const void *)(d_data) % 4 == 0) std::cout<<"Aligned at 4Byte boundary"<<std::endl;
   else if( (uintptr_t)(const void *)(d_data) % 2 == 0) std::cout<<"Aligned at 2Byte boundary"<<std::endl;
   if(N%2 != 0){
