@@ -21,11 +21,11 @@ assert(a:isContiguous(), "Tensor must be contiguous to use with thrust")
 
 
 ffi.cdef("typedef struct float_pair{float aave; float amax;} float_pair_t;")
-ffi.cdef("float_pair_t fp16_stats(half *d_data, int N)")
+ffi.cdef("float_pair_t half2_stats(half *d_data, int N)")
 float_pair_type = ffi.typeof("float_pair_t")
 
 float_pair = float_pair_type()
-float_pair = myLib.fp16_stats(a:data(), nVals)
+float_pair = myLib.half2_stats(a:data(), nVals)
 
 print("average of abs non-zero values: "..float_pair.aave)
 print("maximum abs value: "..float_pair.amax)

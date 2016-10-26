@@ -33,16 +33,24 @@ struct asum_amax_binary_op
 };
 
 struct h2f_unary_op
-  : public thrust::unary_function<unsigned short, float>
+  : public thrust::unary_function<unsigned int, float>
 {
   __device__
-  asum_amax_type<float> operator()(const unsigned short& x) const
+  asum_amax_type<float> operator()(const unsigned int& x) const
   {
-    half val = *( (half*) &x);
+    half2 val = *( (half2*) &x);
+    float2 fval = __half22float2(val);
+    fval.x = fabsf(fval.x);
+    fval.y = fabsf(fval.y);
+    
     asum_amax_type<float> result;
-    result.asum_val = fabsf(__half2float(val));
-    result.amax_val = result.asum_val;
-    result.nnz = (result.asum_val == 0.f) ? 0 : 1;
+
+    result.nnz = (fval.x == 0.f) ? 0 : 1;
+    result.nnz = (fval.y == 0.f) ? result.nnz : result.nnz + 1;
+    result.asum_val = fval.x+fval.y;
+    
+    result.amax_val = thrust::max(fval.x, fval.y);
+
     return result;
   }
 };
@@ -53,7 +61,7 @@ typedef struct float_pair{
 } float_pair_t;
 
 extern "C"
-float_pair_t fp16_stats(half* d_data, int N){
+float_pair_t half2_stats(half* d_data, int N){
   if((uintptr_t)(const void *)(d_data) % 4 == 0) std::cout<<"Aligned at 4Byte boundary"<<std::endl;
   else if( (uintptr_t)(const void *)(d_data) % 2 == 0) std::cout<<"Aligned at 2Byte boundary"<<std::endl;
   if(N%2 != 0){
@@ -61,7 +69,7 @@ float_pair_t fp16_stats(half* d_data, int N){
     throw(-1);
   }
 
-  thrust::device_ptr<unsigned short> d_ptr = thrust::device_pointer_cast((unsigned short*)d_data);
+  thrust::device_ptr<unsigned int> d_ptr = thrust::device_pointer_cast((unsigned int*)d_data);
 
   h2f_unary_op unary_op;
   asum_amax_binary_op<float> binary_op;
@@ -71,7 +79,7 @@ float_pair_t fp16_stats(half* d_data, int N){
   init.nnz=0;
   init.asum_val = 0;
 
-  asum_amax_type<float> result = thrust::transform_reduce(d_ptr, d_ptr+N, unary_op, init, binary_op);
+  asum_amax_type<float> result = thrust::transform_reduce(d_ptr, d_ptr+(N/2), unary_op, init, binary_op);
   float_pair_t return_result;
   return_result.aave = result.asum_val/(float)result.nnz;
   return_result.amax = result.amax_val;
