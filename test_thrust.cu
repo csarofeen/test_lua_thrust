@@ -1,14 +1,88 @@
-#include <thrust/host_vector.h>
 #include <thrust/device_vector.h>
-#include <thrust/generate.h>
-#include <thrust/reduce.h>
+#include <thrust/host_vector.h>
+#include <thrust/transform_reduce.h>
 #include <thrust/functional.h>
+#include <thrust/extrema.h>
+#include <thrust/random.h>
 
-#include <algorithm>
-#include <cstdlib>
+#include <iostream>
+
+#include <cuda_fp16.h>
+
+template <typename T>
+struct asum_amax_type
+{
+  T asum_val;
+  T amax_val;
+  int nnz;
+};
+
+template <typename T>
+struct asum_amax_unary_op
+  : public thrust::unary_function< T, asum_amax_type<T> >
+{
+    __host__ __device__
+    asum_amax_type<T> operator()(const T& x) const
+  {
+    asum_amax_type<T> result;
+    result.nnz = ( x == 0.f ) ? 0 : 1;
+    result.asum_val = fabsf(x);
+    result.amax_val = fabsf(x);
+    return result;
+  }
+};
+
+template <typename T>
+struct asum_amax_binary_op
+  : public thrust::binary_function< asum_amax_type<T>, asum_amax_type<T>, asum_amax_type<T> >
+{
+    __host__ __device__
+    asum_amax_type<T> operator()(const asum_amax_type<T>& x, const asum_amax_type<T>& y) const
+  {
+    asum_amax_type<T> result;
+    result.nnz = x.nnz + y.nnz;
+    result.asum_val = x.asum_val + y.asum_val;
+    result.amax_val = thrust::max(x.amax_val, y.amax_val);
+    return result;
+  }
+};
 
 extern "C"
 float test(float* array, int N){
-  thrust::device_vector<float> d_ptr(array, array+N);
-  return thrust::reduce(d_ptr.begin(), d_ptr.end(), 0, thrust::plus<float>() );
+  thrust::device_vector<float> d_vec(array, array+N);
+  return thrust::reduce(d_vec.begin(), d_vec.end(), 0, thrust::plus<float>() );
+}
+
+extern "C"
+float sum_dev_float(float* d_data, int N){
+  thrust::device_ptr<float> d_ptr = thrust::device_pointer_cast(d_data);
+  for(int i=0; i<N; i++){
+    std::cout<<d_ptr[i]<<std::endl;
+  }
+  return thrust::reduce(d_ptr, d_ptr+N, (float)0, thrust::plus<float>() );
+}
+typedef struct float_pair{
+    float aave;
+    float amax;
+} float_pair_t;
+
+
+
+extern "C"
+float_pair_t get_stats(float *d_data, int N){
+  asum_amax_unary_op<float>  unary_op;
+  asum_amax_binary_op<float> binary_op;
+  
+  thrust::device_ptr<float> d_ptr = thrust::device_pointer_cast(d_data);
+
+  asum_amax_type<float> init = unary_op(d_ptr[0]);
+  init.nnz=0;
+  init.asum_val = 0;
+  asum_amax_type<float> result = thrust::transform_reduce(d_ptr, d_ptr+N, unary_op, init, binary_op);
+  float_pair_t return_result;
+  return_result.aave = result.asum_val/(float)result.nnz;
+  return_result.amax = result.amax_val;
+  std::cout<<return_result.aave<<std::endl;
+  std::cout<<return_result.amax<<std::endl;
+  return return_result;
 }
